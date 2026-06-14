@@ -1,0 +1,19 @@
+.env
+.env.*
+!.env.example
+
+chatbot.db
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Archivos basura de macOS
+.DS_Store
