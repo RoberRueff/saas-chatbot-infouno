@@ -43,7 +43,7 @@ def test_entrada_muy_larga_se_rechaza():
 
 
 def test_entrada_normal_pasa():
-    res = validar_entrada("Hola, necesito una balanza para mi comercio en Rosario")
+    res = validar_entrada("Hola, quiero automatizar la atención de mi comercio en Rosario")
     assert res.permitido is True
     assert res.motivo is None
 
@@ -68,7 +68,7 @@ def test_injection_se_detecta():
 def test_consulta_legitima_sobre_precio_no_es_injection():
     # Preguntar el precio es comportamiento legítimo del cliente: lo maneja el
     # system prompt (deflectar), NO el guardrail anti-injection.
-    res = validar_entrada("¿Cuánto sale una balanza comercial de 30kg?")
+    res = validar_entrada("¿Cuánto sale una web institucional para mi pyme?")
     assert res.permitido is True
 
 
@@ -78,8 +78,8 @@ def test_consulta_legitima_sobre_precio_no_es_injection():
 
 def test_salida_con_precio_se_marca():
     casos = [
-        "La balanza cuesta $150000 más IVA",
-        "El precio de ese modelo es 200000 pesos",
+        "El chatbot cuesta $150000 más IVA",
+        "El precio de ese plan es 200000 pesos",
         "Te sale 1500 USD aproximadamente",
     ]
     for c in casos:
@@ -91,6 +91,19 @@ def test_salida_limpia_pasa():
     res = revisar_salida("Perfecto, un asesor te va a contactar para darte los detalles.")
     assert res.permitido is True
     assert res.motivo is None
+
+
+def test_salida_con_diagnostico_ya_no_se_marca():
+    # infouno no repara equipos: la regla "sin diagnósticos" se eliminó del re-skin.
+    # Una respuesta con forma de diagnóstico debe pasar como salida limpia.
+    casos = [
+        "El problema es que el formulario no valida los campos",
+        "Tenés que cambiar el hosting para que la web cargue más rápido",
+    ]
+    for c in casos:
+        res = revisar_salida(c)
+        assert res.permitido is True, f"marcó como diagnóstico: {c}"
+        assert res.motivo is None
 
 
 # ---------------------------------------------------------------------------
@@ -105,9 +118,17 @@ def test_fachada_bloquea_injection_con_mensaje_fijo():
     assert v.respuesta_fija == MSG_BLOQUEO_INJECTION
 
 
+def test_mensaje_bloqueo_es_de_infouno_no_balanzas():
+    # El re-skin a infouno: el mensaje fijo no debe nombrar balanzas/pesaje y sí
+    # el dominio de infouno (automatización con IA / desarrollo web).
+    bajo = MSG_BLOQUEO_INJECTION.lower()
+    assert "balanza" not in bajo and "pesaje" not in bajo
+    assert "automatiz" in bajo or "web" in bajo or "infouno" in bajo
+
+
 def test_fachada_deja_pasar_mensaje_valido():
     rate_limit.reset()
-    v = guardrails.revisar_entrada("+5491100000001", "Necesito calibrar una balanza de laboratorio")
+    v = guardrails.revisar_entrada("+5491100000001", "Necesito automatizar el seguimiento de pedidos de mi pyme")
     assert v.permitido is True
     assert v.respuesta_fija is None
 
@@ -159,7 +180,7 @@ def test_fachada_rate_limit_devuelve_mensaje():
     rate_limit.reset()
     tel = "+5491188889999"
     for _ in range(RATE_LIMIT_MAX_MENSAJES):
-        guardrails.revisar_entrada(tel, "hola necesito una balanza")
+        guardrails.revisar_entrada(tel, "hola necesito automatizar mi negocio")
     v = guardrails.revisar_entrada(tel, "hola de nuevo")
     assert v.permitido is False
     assert v.motivo == "rate_limit"

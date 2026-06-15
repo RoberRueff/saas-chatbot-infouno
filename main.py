@@ -34,31 +34,30 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Chatbot Balanzas", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Chatbot Infouno", version="1.0.0", lifespan=lifespan)
 
 gemini_client: genai.Client | None = None
 
 SYSTEM_PROMPT = """
-Sos el asistente virtual de una fábrica argentina de balanzas e instrumentos de pesaje industrial.
-Atendés consultas comerciales y técnicas de clientes reales: industrias, comercios, transportistas y laboratorios.
+Sos el asistente virtual de infouno, una agencia argentina que ofrece automatización de procesos con IA y desarrollo web para pymes.
+Atendés consultas de clientes reales: pymes, comercios, profesionales y emprendimientos que buscan digitalizar o automatizar su negocio.
 
 ## REGLAS ESTRICTAS DEL NEGOCIO
 
-1. NUNCA des precios, cotizaciones ni valores estimados. Si el cliente pregunta, decile que un asesor lo va a contactar.
-2. NUNCA hacés diagnósticos técnicos definitivos. Podés preguntar síntomas, pero no afirmar qué tiene o cuánto cuesta reparar.
-3. Siempre hablá de vos (voseo argentino), en tono profesional y cálido. Sin tuteo ni ustedeo formal.
-4. Tu única función es capturar la información necesaria para derivar el caso al área correcta (ventas, servicio técnico o calibración/ISO).
-5. Si el cliente menciona una localidad o provincia, registrala. Si no lo hace, preguntale.
-6. Identificá el tipo de equipo: báscula de camiones, balanza comercial, balanza de laboratorio, pesómetro, balanza de cinta, etc.
-7. Para servicio técnico, relevá: marca, modelo, síntoma de falla y urgencia.
-8. Para calibración/ISO: empresa, equipo, tipo de certificación requerida, plazo.
-9. Una vez que tenés la información mínima para derivar, no seguís preguntando: confirmá la recepción y avisá que alguien los va a contactar.
-10. Si el mensaje es ambiguo o no tiene que ver con pesaje industrial, clasificalo como "Desconocido" y pedí aclaración.
+1. NUNCA des precios, cotizaciones ni valores estimados. Si el cliente pregunta, decile que un asesor lo va a contactar con una propuesta a medida.
+2. Siempre hablá de vos (voseo argentino), en tono profesional y cálido. Sin tuteo ni ustedeo formal.
+3. Tu única función es capturar la información necesaria para derivar el caso al área correcta (Automatización con IA o Desarrollo Web).
+4. Si el cliente menciona una localidad o provincia, registrala. Si no lo hace, preguntale.
+5. Identificá qué necesita: automatización de procesos (chatbots, agentes de IA, integraciones, automatización de tareas) o desarrollo web (sitio institucional, e-commerce, landing, SEO).
+6. Relevá el nombre de la empresa y el rubro de la pyme.
+7. Para Automatización con IA, relevá: qué proceso quiere automatizar, rubro y ubicación.
+8. Para Desarrollo Web, relevá: qué tipo de proyecto (institucional, e-commerce, landing), rubro y ubicación.
+9. Una vez que tenés la información mínima para derivar, no seguís preguntando: confirmá la recepción y avisá que un asesor los va a contactar.
+10. Si el mensaje es ambiguo o no tiene que ver con los servicios de infouno (automatización con IA o desarrollo web), clasificalo como "Desconocido" y pedí aclaración.
 
 ## INFORMACIÓN MÍNIMA PARA DERIVAR
-- Venta: tipo de equipo + ubicación
-- Servicio técnico: marca/modelo + síntoma + ubicación
-- Calibración/ISO: empresa + tipo de equipo + tipo de certificado + ubicación
+- Automatización con IA: proceso a automatizar + rubro + ubicación
+- Desarrollo Web: tipo de proyecto (institucional/e-commerce/landing) + rubro + ubicación
 
 ## IDIOMA
 Solo español rioplatense. Ninguna respuesta en otro idioma.
@@ -70,9 +69,8 @@ Solo español rioplatense. Ninguna respuesta en otro idioma.
 # ---------------------------------------------------------------------------
 
 class Categoria(str, Enum):
-    venta = "Venta de Equipos"
-    servicio = "Servicio Técnico"
-    calibracion = "Calibración/ISO"
+    automatizacion_ia = "Automatización con IA"
+    desarrollo_web = "Desarrollo Web"
     desconocido = "Desconocido"
 
 
@@ -81,16 +79,15 @@ class RespuestaChatbot(BaseModel):
     ubicacion: Optional[str] = Field(
         None, description="Ciudad o provincia argentina mencionada por el cliente"
     )
-    tipo_equipo: Optional[str] = Field(
-        None,
-        description="Tipo de equipo de pesaje (ej: báscula de camiones, balanza comercial, etc.)",
+    nombre_empresa: Optional[str] = Field(
+        None, description="Nombre de la empresa o pyme del cliente, si fue mencionado"
     )
-    marca_modelo: Optional[str] = Field(
-        None, description="Marca y/o modelo del equipo, si fue mencionado"
+    rubro: Optional[str] = Field(
+        None, description="Rubro o sector de la pyme (ej: gastronomía, retail, salud, logística)"
     )
-    sintoma_falla: Optional[str] = Field(
+    necesidad: Optional[str] = Field(
         None,
-        description="Descripción del problema o falla reportada, solo aplica a servicio técnico",
+        description="Qué proceso quiere automatizar o qué tipo de web necesita (institucional, e-commerce, landing)",
     )
     info_faltante: list[str] = Field(
         default_factory=list,
@@ -203,7 +200,7 @@ def _procesar_mensaje(db: Session, telefono: str, texto: str) -> tuple[Optional[
 
 @app.get("/")
 def root():
-    return {"status": "ok", "servicio": "Chatbot Balanzas", "ia": "gemini-2.5-flash"}
+    return {"status": "ok", "servicio": "Chatbot Infouno", "ia": "gemini-2.5-flash"}
 
 
 @app.post("/chat", response_model=RespuestaChat)

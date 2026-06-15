@@ -48,19 +48,18 @@ PATRONES_INJECTION = [
 ]
 
 # ---------------------------------------------------------------------------
-# Filtro de salida — reglas de negocio (#1 no precios, #2 no diagnósticos)
+# Filtro de salida — regla de negocio (#1 no precios)
 #
-# Red de seguridad sobre la respuesta del bot. Patrones conservadores para
-# minimizar falsos positivos; la detección de diagnóstico es best-effort.
-# Cada entrada es (motivo, patrón) y se evalúa sobre el texto en minúsculas.
+# Red de seguridad sobre la respuesta del bot: que no incluya precios ni
+# cotizaciones (los proyectos de infouno se cotizan a medida vía asesor).
+# Patrones conservadores para minimizar falsos positivos. Cada entrada es
+# (motivo, patrón) y se evalúa sobre el texto en minúsculas.
 # ---------------------------------------------------------------------------
 
 PATRONES_PROHIBIDOS_SALIDA = [
     ("precio", re.compile(r"\$\s?\d")),
     ("precio", re.compile(r"\b\d[\d.,]*\s?(pesos|d[oó]lares|usd|ars|us\$|u\$s)\b")),
     ("precio", re.compile(r"\b(cuesta|sale|vale|precio de|cotiza(?:ci[oó]n)? de|sale por)\s+\$?\s*\d")),
-    ("diagnostico", re.compile(r"\bel problema es\s+(que\s+)?(el|la|los|las|un|una|tu)\b")),
-    ("diagnostico", re.compile(r"\b(ten[eé]s|hay)\s+que\s+(reemplazar|cambiar|reparar)\s+(el|la|los|las|tu)\b")),
 ]
 
 # ---------------------------------------------------------------------------
@@ -68,8 +67,9 @@ PATRONES_PROHIBIDOS_SALIDA = [
 # ---------------------------------------------------------------------------
 
 MSG_BLOQUEO_INJECTION = (
-    "Solo puedo ayudarte con consultas sobre balanzas e instrumentos de pesaje "
-    "industrial (ventas, servicio técnico o calibración). ¿En qué te puedo ayudar?"
+    "Solo puedo ayudarte con consultas sobre los servicios de infouno: "
+    "automatización de procesos con IA y desarrollo web para tu empresa. "
+    "¿En qué te puedo ayudar?"
 )
 
 MSG_ENTRADA_INVALIDA = (
@@ -83,5 +83,5 @@ MSG_RATE_LIMIT = (
 
 MSG_SALIDA_SANITIZADA = (
     "Por ese tema te va a contactar un asesor para darte la información precisa. "
-    "¿Querés dejarme algún dato más (ubicación, tipo de equipo) para agilizar?"
+    "¿Querés dejarme algún dato más (rubro, tipo de proyecto) para agilizar?"
 )

@@ -7,15 +7,15 @@
 set -euo pipefail
 
 # --- Configuracion ---
-PROYECTO="/Users/Rober/Desktop/Proyectos/saas chatbot balanzas"
+PROYECTO="/Users/Rober/Desktop/Proyectos/saas chatbot infouno"
 PUERTO=8000
-DOMINIO="repeal-emphases-prior.ngrok-free.dev"   # tu dominio fijo de ngrok
+DOMINIO="film-passably-puzzling.ngrok-free.dev"   # dominio fijo de ngrok de infouno
 
 export PATH="$HOME/.local/bin:$PATH"
 cd "$PROYECTO"
 
 echo "============================================================"
-echo "  CHATBOT BALANZAS — iniciando..."
+echo "  CHATBOT INFOUNO — iniciando..."
 echo "============================================================"
 
 # Limpieza al salir: frena servidor y tunel juntos

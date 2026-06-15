@@ -49,7 +49,7 @@ def sanitizar_salida(respuesta: str) -> tuple[str, str | None]:
     """Revisa la respuesta del modelo.
 
     Devuelve (texto_final, motivo). Si se detectó una violación, `texto_final`
-    es un mensaje seguro y `motivo` indica qué se filtró ("precio"/"diagnostico").
+    es un mensaje seguro y `motivo` indica qué se filtró ("precio").
     Si está limpia, devuelve la respuesta original y motivo None.
     """
     resultado = revisar_salida(respuesta)

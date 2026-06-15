@@ -1,7 +1,7 @@
-# Chatbot Balanzas
+# Chatbot Infouno
 
-Chatbot de WhatsApp para una fábrica argentina de balanzas e instrumentos de pesaje industrial.  
-Captura consultas de clientes (ventas, servicio técnico, calibración/ISO) y las clasifica con IA para derivarlas al área correspondiente.
+Chatbot de WhatsApp para infouno, agencia argentina de automatización de procesos con IA y desarrollo web para pymes.  
+Captura consultas de clientes (Automatización con IA, Desarrollo Web) y las clasifica con IA para derivarlas al área correspondiente.
 
 ## Stack
 
@@ -56,7 +56,7 @@ automáticamente dentro de `_procesar_mensaje`, antes y después de llamar a Gem
 | `ia/config.py` | Parámetros ajustables: umbrales, patrones (regex) y mensajes fijos al cliente. Es el único lugar que hay que tocar para afinar el comportamiento. |
 | `ia/rate_limit.py` | Límite de mensajes por teléfono (ventana deslizante en memoria). |
 | `ia/input_guardrails.py` | Validación de entrada + detección de prompt injection / jailbreak. |
-| `ia/output_guardrails.py` | Filtro de la respuesta del bot (reglas de negocio: sin precios ni diagnósticos). |
+| `ia/output_guardrails.py` | Filtro de la respuesta del bot (regla de negocio: sin precios). |
 | `ia/guardrails.py` | Fachada: única puerta que usa `main.py`. |
 
 **Controles activos:**
@@ -64,7 +64,7 @@ automáticamente dentro de `_procesar_mensaje`, antes y después de llamar a Gem
 1. **Rate limit por teléfono** — máx. `15` mensajes cada `60s` (configurable en `ia/config.py`).
 2. **Validación de entrada** — rechaza mensajes vacíos o de más de `2000` caracteres.
 3. **Anti prompt-injection** — detecta intentos de manipular al bot ("ignorá las instrucciones", "actuá como…", "system prompt", etc.). Heurística por patrones: primera barrera, no infalible.
-4. **Filtro de salida** — si la respuesta generada incluye un precio o un diagnóstico definitivo (viola las reglas del negocio), se reemplaza por un texto seguro.
+4. **Filtro de salida** — si la respuesta generada incluye un precio (viola la regla del negocio), se reemplaza por un texto seguro.
 
 Cuando un guardrail de **entrada** bloquea, el bot responde con un mensaje fijo,
 registra el evento (`logging`) y **no llama a Gemini ni guarda el mensaje** (así

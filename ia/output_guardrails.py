@@ -1,8 +1,7 @@
 """Guardrail de salida: red de seguridad sobre las reglas de negocio.
 
-Verifica que la respuesta del bot no incluya precios/cotizaciones (regla #1) ni
-diagnósticos definitivos (regla #2). Es una segunda barrera por si el modelo se
-desvía del system prompt.
+Verifica que la respuesta del bot no incluya precios/cotizaciones (regla #1).
+Es una segunda barrera por si el modelo se desvía del system prompt.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from ia.config import PATRONES_PROHIBIDOS_SALIDA
 @dataclass
 class ResultadoSalida:
     permitido: bool
-    motivo: str | None = None  # "precio" | "diagnostico" | None
+    motivo: str | None = None  # "precio" | None
 
 
 def revisar_salida(respuesta: str) -> ResultadoSalida:

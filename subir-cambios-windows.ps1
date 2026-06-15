@@ -43,7 +43,7 @@ git push origin main
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
     Write-Host "Listo! Cambios subidos a:" -ForegroundColor Green
-    Write-Host "https://github.com/RoberRueff/saas-chatbot-balanzas" -ForegroundColor Green
+    Write-Host "https://github.com/RoberRueff/saas-chatbot-infouno" -ForegroundColor Green
 } else {
     Write-Host ""
     Write-Host "ERROR al subir. Revisa tu conexion o credenciales de GitHub." -ForegroundColor Red

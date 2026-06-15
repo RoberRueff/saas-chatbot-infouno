@@ -40,7 +40,7 @@ fi
 if git push origin main; then
   echo ""
   echo "Listo! Cambios subidos a:"
-  echo "https://github.com/RoberRueff/saas-chatbot-balanzas"
+  echo "https://github.com/RoberRueff/saas-chatbot-infouno"
 else
   echo ""
   echo "ERROR al subir. Revisa tu conexion o credenciales de GitHub."
