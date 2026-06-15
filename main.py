@@ -20,11 +20,12 @@ from database import (
     guardar_mensaje,
     init_db,
     liberar_derivacion,
+    marcar_estado_humano,
     obtener_o_crear_conversacion,
     reclamar_derivacion,
 )
 from ia import guardrails
-from notificaciones.email import enviar_aviso_derivacion
+from notificaciones.email import enviar_aviso_derivacion, enviar_aviso_escalamiento
 from seguridad.twilio import verificar_twilio
 
 load_dotenv()
@@ -150,8 +151,8 @@ class MensajeEntrada(BaseModel):
 
 class RespuestaChat(BaseModel):
     conversacion_id: Optional[int] = None  # None si un guardrail bloqueó antes de crear conversación
-    respuesta: str
-    datos: RespuestaChatbot
+    respuesta: str = ""
+    datos: Optional[RespuestaChatbot] = None  # None cuando el bot está en silencio (modo humano)
 
 
 # ---------------------------------------------------------------------------
@@ -246,12 +247,23 @@ def _derivar_en_background(conversacion_id: int, resultado: RespuestaChatbot, te
             liberar_derivacion(db, conversacion_id)
 
 
+MSG_ESCALAMIENTO_HUMANO = (
+    "Dale, le aviso a un asesor para que te contacte. En breve te responde una persona."
+)
+
+
+def _escalar_en_background(resultado: RespuestaChatbot, telefono: str) -> None:
+    """Envía el email de escalamiento FUERA del request. La marca atómica de
+    `marcar_estado_humano` ya garantizó un único disparo, así que acá solo se envía."""
+    enviar_aviso_escalamiento(resultado, telefono)
+
+
 def _procesar_mensaje(
     db: Session,
     telefono: str,
     texto: str,
     background_tasks: BackgroundTasks | None = None,
-) -> tuple[Optional[int], RespuestaChatbot]:
+) -> tuple[Optional[int], Optional[RespuestaChatbot]]:
     # --- Guardrails de entrada (rate limit -> validación -> anti-injection) ---
     # Si bloquea, NO llamamos a Gemini y NO persistimos el mensaje (evita que un
     # intento de injection quede en el historial y contamine las próximas llamadas).
@@ -261,6 +273,14 @@ def _procesar_mensaje(
         return None, _respuesta_sintetica(veredicto.respuesta_fija)
 
     conversacion = obtener_o_crear_conversacion(db, telefono)
+
+    # --- Modo humano: el bot no responde, pero guardamos el mensaje del cliente
+    # para que el asesor tenga el historial completo. No se llama a Gemini.
+    if conversacion.estado_humano:
+        guardar_mensaje(db, conversacion.id, "user", texto)
+        logger.info("Conversación %s en modo humano — bot en silencio", conversacion.id)
+        return conversacion.id, None
+
     mensajes = conversacion.mensajes[-MAX_HISTORIAL_MENSAJES:]
     # Gemini exige que el historial arranque con un turno de usuario.
     while mensajes and mensajes[0].rol != "user":
@@ -275,6 +295,19 @@ def _procesar_mensaje(
     if motivo_salida is not None:
         logger.warning("Guardrail de salida sanitizó respuesta para %s — motivo: %s", telefono, motivo_salida)
         resultado.respuesta_al_cliente = texto_seguro
+
+    # --- Escalamiento a humano: el cliente pidió una persona. Marcamos modo humano
+    # (atómico), respondemos un texto fijo y avisamos al equipo en background. La
+    # derivación de este turno se saltea (el escalamiento la reemplaza).
+    if resultado.solicita_humano:
+        gano = marcar_estado_humano(db, conversacion.id)
+        resultado.respuesta_al_cliente = MSG_ESCALAMIENTO_HUMANO
+        nota_json = resultado.model_dump_json(exclude={"respuesta_al_cliente"}, exclude_none=False)
+        guardar_mensaje(db, conversacion.id, "user", texto)
+        guardar_mensaje(db, conversacion.id, "assistant", resultado.respuesta_al_cliente, nota_json)
+        if gano and background_tasks is not None:
+            background_tasks.add_task(_escalar_en_background, resultado, telefono)
+        return conversacion.id, resultado
 
     nota_json = resultado.model_dump_json(exclude={"respuesta_al_cliente"}, exclude_none=False)
     guardar_mensaje(db, conversacion.id, "user", texto)
@@ -311,6 +344,8 @@ def chat(entrada: MensajeEntrada, background_tasks: BackgroundTasks, db: Session
     except Exception as e:
         logger.exception("Error procesando /chat para %s", entrada.telefono_cliente)
         raise HTTPException(status_code=502, detail="Error procesando la solicitud") from e
+    if resultado is None:
+        return RespuestaChat(conversacion_id=conv_id, respuesta="", datos=None)
     return RespuestaChat(
         conversacion_id=conv_id,
         respuesta=resultado.respuesta_al_cliente,
@@ -335,10 +370,14 @@ def whatsapp_webhook(
 
     try:
         _, resultado = _procesar_mensaje(db, telefono, Body, background_tasks)
-        respuesta_texto = resultado.respuesta_al_cliente
     except Exception:
         logger.exception("Error procesando /whatsapp para %s", telefono)
         respuesta_texto = "Hubo un problema procesando tu mensaje. Por favor intentá de nuevo en unos minutos."
+    else:
+        # Modo humano: el bot se calla (TwiML sin <Message>, Twilio no envía nada).
+        if resultado is None:
+            return Response(content="<Response></Response>", media_type="application/xml")
+        respuesta_texto = resultado.respuesta_al_cliente
 
     twiml = f"<Response><Message>{xml_escape(respuesta_texto)}</Message></Response>"
     return Response(content=twiml, media_type="application/xml")

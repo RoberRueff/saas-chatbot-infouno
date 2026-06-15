@@ -33,20 +33,28 @@ def test_chat_con_api_key_incorrecta_rechaza():
 
 
 def test_chat_con_api_key_correcta_pasa():
-    main._procesar_mensaje = lambda db, tel, txt, bg=None: (1, main._respuesta_sintetica("ok"))
-    with TestClient(main.app) as client:
-        r = client.post("/chat", json=_BODY, headers=_HEAD_OK)
-        assert r.status_code == 200, r.status_code
+    original = main._procesar_mensaje
+    try:
+        main._procesar_mensaje = lambda db, tel, txt, bg=None: (1, main._respuesta_sintetica("ok"))
+        with TestClient(main.app) as client:
+            r = client.post("/chat", json=_BODY, headers=_HEAD_OK)
+            assert r.status_code == 200, r.status_code
+    finally:
+        main._procesar_mensaje = original
 
 
 def test_chat_no_filtra_el_error_interno():
-    def _boom(db, tel, txt, bg=None):
-        raise RuntimeError("SECRETO-INTERNO-12345")
-    main._procesar_mensaje = _boom
-    with TestClient(main.app) as client:
-        r = client.post("/chat", json=_BODY, headers=_HEAD_OK)
-        assert r.status_code == 502, r.status_code
-        assert "SECRETO-INTERNO-12345" not in r.text, "el endpoint filtró el error interno"
+    original = main._procesar_mensaje
+    try:
+        def _boom(db, tel, txt, bg=None):
+            raise RuntimeError("SECRETO-INTERNO-12345")
+        main._procesar_mensaje = _boom
+        with TestClient(main.app) as client:
+            r = client.post("/chat", json=_BODY, headers=_HEAD_OK)
+            assert r.status_code == 502, r.status_code
+            assert "SECRETO-INTERNO-12345" not in r.text, "el endpoint filtró el error interno"
+    finally:
+        main._procesar_mensaje = original
 
 
 if __name__ == "__main__":
