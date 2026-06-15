@@ -46,6 +46,21 @@ Copiá `.env.example` como `.env` y completá:
 | `POST` | `/chat` | API REST para pruebas |
 | `POST` | `/whatsapp` | Webhook de Twilio (WhatsApp) |
 
+## Tests
+
+Instalá las dependencias de desarrollo y corré toda la suite con pytest:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Cada archivo de test también trae un runner propio para correrlo aislado sin pytest:
+
+```bash
+python3 ia/tests/test_guardrails.py
+```
+
 ## Seguridad y guardrails (`ia/`)
 
 Toda la lógica de seguridad de la IA vive aislada en la carpeta `ia/`. Se aplica
