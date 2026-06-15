@@ -10,7 +10,7 @@ from xml.sax.saxutils import escape as xml_escape
 from google import genai
 from google.genai import types as genai_types
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Form, HTTPException
+from fastapi import Depends, FastAPI, Form, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -135,6 +135,17 @@ def _ia_configurada() -> bool:
     return bool(os.getenv("GEMINI_API_KEY"))
 
 
+def verificar_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Auth simple para /chat: exige el header X-API-Key == APP_SECRET_KEY.
+
+    Si APP_SECRET_KEY no está configurada, el endpoint queda cerrado (rechaza
+    todo) en vez de abierto: fail-closed.
+    """
+    esperado = os.getenv("APP_SECRET_KEY", "")
+    if not esperado or x_api_key != esperado:
+        raise HTTPException(status_code=401, detail="API key inválida o ausente")
+
+
 def _llamar_gemini(historial: list[dict], texto: str) -> RespuestaChatbot:
     contents = []
     for msg in historial:
@@ -228,19 +239,15 @@ def root():
     return {"status": "ok", "servicio": "Chatbot Infouno", "ia": "gemini-2.5-flash"}
 
 
-@app.post("/chat", response_model=RespuestaChat)
+@app.post("/chat", response_model=RespuestaChat, dependencies=[Depends(verificar_api_key)])
 def chat(entrada: MensajeEntrada, db: Session = Depends(get_db)):
     if not _ia_configurada():
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
     try:
         conv_id, resultado = _procesar_mensaje(db, entrada.telefono_cliente, entrada.mensaje)
     except Exception as e:
-        print("\n" + "="*60)
-        print("ERROR EN /chat — GEMINI")
-        print("="*60)
-        traceback.print_exc()
-        print("="*60 + "\n")
-        raise HTTPException(status_code=502, detail=f"Error Gemini: {str(e)}")
+        logger.exception("Error procesando /chat para %s", entrada.telefono_cliente)
+        raise HTTPException(status_code=502, detail="Error procesando la solicitud") from e
     return RespuestaChat(
         conversacion_id=conv_id,
         respuesta=resultado.respuesta_al_cliente,
