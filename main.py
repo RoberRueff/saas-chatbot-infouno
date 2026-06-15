@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import (
+    borrar_datos_telefono,
     engine,
     get_db,
     guardar_mensaje,
@@ -153,6 +154,10 @@ class RespuestaChat(BaseModel):
     conversacion_id: Optional[int] = None  # None si un guardrail bloqueó antes de crear conversación
     respuesta: str = ""
     datos: Optional[RespuestaChatbot] = None  # None cuando el bot está en silencio (modo humano)
+
+
+class BorrarDatos(BaseModel):
+    telefono: str = Field(description="Teléfono cuyos datos hay que borrar (derecho de supresión)")
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +356,13 @@ def chat(entrada: MensajeEntrada, background_tasks: BackgroundTasks, db: Session
         respuesta=resultado.respuesta_al_cliente,
         datos=resultado,
     )
+
+
+@app.post("/admin/borrar-datos", dependencies=[Depends(verificar_api_key)])
+def borrar_datos(entrada: BorrarDatos, db: Session = Depends(get_db)):
+    n = borrar_datos_telefono(db, entrada.telefono)
+    logger.info("Borrado a pedido: %s conversaciones del teléfono %s", n, entrada.telefono)
+    return {"telefono": entrada.telefono, "conversaciones_borradas": n}
 
 
 @app.post("/whatsapp", dependencies=[Depends(verificar_twilio)])
