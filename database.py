@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
 
@@ -100,8 +101,27 @@ def guardar_mensaje(
     return mensaje
 
 
-def marcar_derivada(db: Session, conversacion: Conversacion) -> None:
-    """Marca la conversación como derivada (caso ya notificado por email)."""
-    conversacion.derivada = True
-    conversacion.derivada_en = datetime.now(timezone.utc)
+def reclamar_derivacion(db: Session, conversacion_id: int) -> bool:
+    """Marca la conversación como derivada de forma ATÓMICA.
+
+    Devuelve True solo si ESTE llamado fue el que la marcó (gana la carrera);
+    False si ya estaba derivada. El `UPDATE ... WHERE derivada = False` evita que
+    dos requests concurrentes del mismo cliente disparen el email dos veces.
+    """
+    resultado = db.execute(
+        update(Conversacion)
+        .where(Conversacion.id == conversacion_id, Conversacion.derivada == False)  # noqa: E712
+        .values(derivada=True, derivada_en=datetime.now(timezone.utc))
+    )
+    db.commit()
+    return resultado.rowcount == 1
+
+
+def liberar_derivacion(db: Session, conversacion_id: int) -> None:
+    """Revierte la marca de derivación (para reintentar si el envío de email falló)."""
+    db.execute(
+        update(Conversacion)
+        .where(Conversacion.id == conversacion_id)
+        .values(derivada=False, derivada_en=None)
+    )
     db.commit()

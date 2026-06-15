@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import traceback
 from contextlib import asynccontextmanager
 from enum import Enum
 from typing import Optional
@@ -10,17 +9,19 @@ from xml.sax.saxutils import escape as xml_escape
 from google import genai
 from google.genai import types as genai_types
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Form, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Form, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import (
+    engine,
     get_db,
     guardar_mensaje,
     init_db,
-    marcar_derivada,
+    liberar_derivacion,
     obtener_o_crear_conversacion,
+    reclamar_derivacion,
 )
 from ia import guardrails
 from notificaciones.email import enviar_aviso_derivacion
@@ -189,7 +190,26 @@ def _respuesta_bloqueada(texto_fijo: str) -> RespuestaChatbot:
     )
 
 
-def _procesar_mensaje(db: Session, telefono: str, texto: str) -> tuple[Optional[int], RespuestaChatbot]:
+def _derivar_en_background(conversacion_id: int, resultado: RespuestaChatbot, telefono: str) -> None:
+    """Envía el email de derivación FUERA del request (no bloquea la respuesta).
+
+    Usa una sesión nueva (la del request ya se cerró). Reclama la derivación de
+    forma atómica: solo el primero que gana la carrera envía; si el envío falla,
+    libera la marca para reintentar en el próximo mensaje del cliente.
+    """
+    with Session(engine) as db:
+        if not reclamar_derivacion(db, conversacion_id):
+            return  # otro request ya está derivando este caso
+        if not enviar_aviso_derivacion(resultado, telefono):
+            liberar_derivacion(db, conversacion_id)
+
+
+def _procesar_mensaje(
+    db: Session,
+    telefono: str,
+    texto: str,
+    background_tasks: BackgroundTasks | None = None,
+) -> tuple[Optional[int], RespuestaChatbot]:
     # --- Guardrails de entrada (rate limit -> validación -> anti-injection) ---
     # Si bloquea, NO llamamos a Gemini y NO persistimos el mensaje (evita que un
     # intento de injection quede en el historial y contamine las próximas llamadas).
@@ -218,14 +238,15 @@ def _procesar_mensaje(db: Session, telefono: str, texto: str) -> tuple[Optional[
     guardar_mensaje(db, conversacion.id, "user", texto)
     guardar_mensaje(db, conversacion.id, "assistant", resultado.respuesta_al_cliente, nota_json)
 
-    # --- Derivación: si el caso quedó listo y todavía no fue notificado, mandar
-    # el email al departamento. Se marca derivada SOLO si el envío salió OK
-    # (si falla, reintenta en el próximo mensaje del cliente). No bloqueante.
-    if (resultado.notificar_recepcion
+    # --- Derivación: si el caso quedó listo y todavía no fue notificado, AGENDAR
+    # el envío del email en BACKGROUND (no bloquea la respuesta al cliente, así el
+    # webhook de Twilio no se cuelga si el SMTP está lento). El reclamo atómico
+    # dentro de la tarea garantiza un único envío por caso.
+    if (background_tasks is not None
+            and resultado.notificar_recepcion
             and not conversacion.derivada
             and resultado.categoria != Categoria.desconocido):
-        if enviar_aviso_derivacion(resultado, telefono):
-            marcar_derivada(db, conversacion)
+        background_tasks.add_task(_derivar_en_background, conversacion.id, resultado, telefono)
 
     return conversacion.id, resultado
 
@@ -240,11 +261,11 @@ def root():
 
 
 @app.post("/chat", response_model=RespuestaChat, dependencies=[Depends(verificar_api_key)])
-def chat(entrada: MensajeEntrada, db: Session = Depends(get_db)):
+def chat(entrada: MensajeEntrada, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     if not _ia_configurada():
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY no configurada")
     try:
-        conv_id, resultado = _procesar_mensaje(db, entrada.telefono_cliente, entrada.mensaje)
+        conv_id, resultado = _procesar_mensaje(db, entrada.telefono_cliente, entrada.mensaje, background_tasks)
     except Exception as e:
         logger.exception("Error procesando /chat para %s", entrada.telefono_cliente)
         raise HTTPException(status_code=502, detail="Error procesando la solicitud") from e
@@ -257,6 +278,7 @@ def chat(entrada: MensajeEntrada, db: Session = Depends(get_db)):
 
 @app.post("/whatsapp", dependencies=[Depends(verificar_twilio)])
 def whatsapp_webhook(
+    background_tasks: BackgroundTasks,
     From: str = Form(...),
     Body: str = Form(...),
     db: Session = Depends(get_db),
@@ -270,16 +292,10 @@ def whatsapp_webhook(
     telefono = From.replace("whatsapp:", "").strip()
 
     try:
-        _, resultado = _procesar_mensaje(db, telefono, Body)
+        _, resultado = _procesar_mensaje(db, telefono, Body, background_tasks)
         respuesta_texto = resultado.respuesta_al_cliente
-    except Exception as e:
-        print("\n" + "="*60)
-        print("ERROR EN /whatsapp — GEMINI")
-        print(f"Teléfono: {telefono}")
-        print(f"Mensaje recibido: {Body}")
-        print("Detalle del error:")
-        traceback.print_exc()
-        print("="*60 + "\n")
+    except Exception:
+        logger.exception("Error procesando /whatsapp para %s", telefono)
         respuesta_texto = "Hubo un problema procesando tu mensaje. Por favor intentá de nuevo en unos minutos."
 
     twiml = f"<Response><Message>{xml_escape(respuesta_texto)}</Message></Response>"
