@@ -85,6 +85,7 @@ Atendés por WhatsApp a clientes reales y tu tarea es derivar cada consulta al D
 5. Relevá el nombre de la empresa y el rubro de la pyme.
 6. Para casos comerciales, identificá la línea de servicio (campo linea_servicio): "Automatización con IA" o "Desarrollo Web".
 7. Una vez que tenés la información mínima para derivar, no seguís preguntando: confirmá la recepción y avisá que un asesor los va a contactar.
+8. Si el cliente pide EXPLÍCITAMENTE hablar con una persona / un asesor / un humano, poné solicita_humano=True. No lo asumas si no lo pidió de forma explícita.
 
 ## INFORMACIÓN MÍNIMA PARA DERIVAR (recién ahí notificar_recepcion=True)
 - Comercial/Ventas: necesidad (qué servicio) + rubro + ubicación
@@ -135,6 +136,10 @@ class RespuestaChatbot(BaseModel):
     )
     notificar_recepcion: bool = Field(
         description="True si ya tenemos la información mínima para derivar el caso. False si todavía falta preguntar algo."
+    )
+    solicita_humano: bool = Field(
+        default=False,
+        description="True si el cliente pide explícitamente hablar con una persona / un asesor / un humano.",
     )
 
 
