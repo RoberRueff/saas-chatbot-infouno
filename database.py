@@ -26,6 +26,10 @@ class Conversacion(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     telefono_cliente: Mapped[str] = mapped_column(String(20), index=True)
     estado_humano: Mapped[bool] = mapped_column(Boolean, default=False)
+    derivada: Mapped[bool] = mapped_column(Boolean, default=False)
+    derivada_en: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     fecha_creacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -94,3 +98,10 @@ def guardar_mensaje(
     db.commit()
     db.refresh(mensaje)
     return mensaje
+
+
+def marcar_derivada(db: Session, conversacion: Conversacion) -> None:
+    """Marca la conversación como derivada (caso ya notificado por email)."""
+    conversacion.derivada = True
+    conversacion.derivada_en = datetime.now(timezone.utc)
+    db.commit()
