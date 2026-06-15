@@ -14,7 +14,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from notificaciones.config import NotifConfig
-from notificaciones.email import construir_asunto, construir_cuerpo
+from notificaciones.email import construir_asunto, construir_cuerpo, enviar_aviso_derivacion
 
 
 def _config(**over):
@@ -87,6 +87,52 @@ def test_cuerpo_tolera_campos_vacios():
     cuerpo = construir_cuerpo(_resultado(nombre_empresa=None, rubro=None,
                                          linea_servicio=None), "+5491150000010")
     assert "-" in cuerpo  # los campos faltantes se muestran como "-"
+
+
+def _sender_espia(registro):
+    def _sender(config, destino, asunto, cuerpo):
+        registro.append((destino, asunto, cuerpo))
+    return _sender
+
+
+def test_envia_al_destino_correcto():
+    enviados = []
+    ok = enviar_aviso_derivacion(
+        _resultado(categoria="Servicio Técnico"), "+5491150000010",
+        config=_config(), sender=_sender_espia(enviados),
+    )
+    assert ok is True
+    assert len(enviados) == 1
+    assert enviados[0][0] == "servicio.tecnico@infouno.com.ar"
+
+
+def test_no_envia_si_esta_desactivado():
+    enviados = []
+    ok = enviar_aviso_derivacion(
+        _resultado(), "+549115", config=_config(smtp_password=""),
+        sender=_sender_espia(enviados),
+    )
+    assert ok is False
+    assert enviados == []
+
+
+def test_no_envia_si_categoria_sin_destino():
+    enviados = []
+    ok = enviar_aviso_derivacion(
+        _resultado(categoria="Desconocido"), "+549115",
+        config=_config(), sender=_sender_espia(enviados),
+    )
+    assert ok is False
+    assert enviados == []
+
+
+def test_falla_del_sender_no_propaga_y_devuelve_false():
+    def _sender_explota(config, destino, asunto, cuerpo):
+        raise RuntimeError("SMTP caído")
+    ok = enviar_aviso_derivacion(
+        _resultado(), "+549115", config=_config(), sender=_sender_explota,
+    )
+    assert ok is False
 
 
 if __name__ == "__main__":
