@@ -33,7 +33,7 @@ def test_chat_con_api_key_incorrecta_rechaza():
 
 
 def test_chat_con_api_key_correcta_pasa():
-    main._procesar_mensaje = lambda db, tel, txt, bg=None: (1, main._respuesta_bloqueada("ok"))
+    main._procesar_mensaje = lambda db, tel, txt, bg=None: (1, main._respuesta_sintetica("ok"))
     with TestClient(main.app) as client:
         r = client.post("/chat", json=_BODY, headers=_HEAD_OK)
         assert r.status_code == 200, r.status_code

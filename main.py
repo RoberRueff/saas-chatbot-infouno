@@ -147,6 +147,11 @@ def verificar_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail="API key inválida o ausente")
 
 
+MSG_IA_SIN_RESPUESTA = (
+    "Perdoná, no pude procesar bien tu mensaje. ¿Lo podés escribir de otra forma?"
+)
+
+
 def _llamar_gemini(historial: list[dict], texto: str) -> RespuestaChatbot:
     contents = []
     for msg in historial:
@@ -170,6 +175,17 @@ def _llamar_gemini(historial: list[dict], texto: str) -> RespuestaChatbot:
             temperature=0.3,
         ),
     )
+    # El modelo puede no devolver texto (filtro de seguridad, MAX_TOKENS): en ese
+    # caso response.text es None. No es un crash: degradamos con un mensaje amable
+    # en vez de reventar al parsear.
+    if not response.text:
+        finish = None
+        try:
+            finish = response.candidates[0].finish_reason
+        except Exception:  # noqa: BLE001
+            pass
+        logger.warning("Gemini no devolvió texto (finish_reason=%s) — fallback al cliente", finish)
+        return _respuesta_sintetica(MSG_IA_SIN_RESPUESTA)
     data = json.loads(response.text)
     return RespuestaChatbot(**data)
 
@@ -181,8 +197,8 @@ def _llamar_gemini(historial: list[dict], texto: str) -> RespuestaChatbot:
 MAX_HISTORIAL_MENSAJES = 30  # ventana de contexto para acotar tokens/latencia
 
 
-def _respuesta_bloqueada(texto_fijo: str) -> RespuestaChatbot:
-    """Respuesta sintética para cuando un guardrail de entrada bloquea el mensaje."""
+def _respuesta_sintetica(texto_fijo: str) -> RespuestaChatbot:
+    """Respuesta que arma la app (no el modelo): guardrail que bloquea o IA sin respuesta."""
     return RespuestaChatbot(
         categoria=Categoria.desconocido,
         respuesta_al_cliente=texto_fijo,
@@ -216,7 +232,7 @@ def _procesar_mensaje(
     veredicto = guardrails.revisar_entrada(telefono, texto)
     if not veredicto.permitido:
         logger.warning("Guardrail de entrada bloqueó mensaje de %s — motivo: %s", telefono, veredicto.motivo)
-        return None, _respuesta_bloqueada(veredicto.respuesta_fija)
+        return None, _respuesta_sintetica(veredicto.respuesta_fija)
 
     conversacion = obtener_o_crear_conversacion(db, telefono)
     mensajes = conversacion.mensajes[-MAX_HISTORIAL_MENSAJES:]
