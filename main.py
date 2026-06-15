@@ -15,8 +15,15 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from database import get_db, guardar_mensaje, init_db, obtener_o_crear_conversacion
+from database import (
+    get_db,
+    guardar_mensaje,
+    init_db,
+    marcar_derivada,
+    obtener_o_crear_conversacion,
+)
 from ia import guardrails
+from notificaciones.email import enviar_aviso_derivacion
 from seguridad.twilio import verificar_twilio
 
 load_dotenv()
@@ -199,6 +206,16 @@ def _procesar_mensaje(db: Session, telefono: str, texto: str) -> tuple[Optional[
     nota_json = resultado.model_dump_json(exclude={"respuesta_al_cliente"}, exclude_none=False)
     guardar_mensaje(db, conversacion.id, "user", texto)
     guardar_mensaje(db, conversacion.id, "assistant", resultado.respuesta_al_cliente, nota_json)
+
+    # --- Derivación: si el caso quedó listo y todavía no fue notificado, mandar
+    # el email al departamento. Se marca derivada SOLO si el envío salió OK
+    # (si falla, reintenta en el próximo mensaje del cliente). No bloqueante.
+    if (resultado.notificar_recepcion
+            and not conversacion.derivada
+            and resultado.categoria != Categoria.desconocido):
+        if enviar_aviso_derivacion(resultado, telefono):
+            marcar_derivada(db, conversacion)
+
     return conversacion.id, resultado
 
 
