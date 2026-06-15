@@ -191,3 +191,40 @@ def marcar_estado_humano(db: Session, conversacion_id: int) -> bool:
     )
     db.commit()
     return resultado.rowcount == 1
+
+
+RETENCION_DIAS = 180  # 6 meses; conservación limitada (Ley 25.326 art. 4 inc. 7)
+
+
+def purgar_conversaciones_antiguas(db: Session, ahora: datetime | None = None) -> int:
+    """Borra conversaciones (y sus mensajes) con última actividad >= RETENCION_DIAS.
+
+    Devuelve cuántas conversaciones borró. `ahora` es inyectable para tests.
+    """
+    instante = _as_utc(ahora or datetime.now(timezone.utc))
+    corte = instante - timedelta(days=RETENCION_DIAS)
+    ids = [c.id for c in db.query(Conversacion).all() if _ultima_actividad(db, c) < corte]
+    if ids:
+        db.query(HistorialMensaje).filter(
+            HistorialMensaje.conversacion_id.in_(ids)
+        ).delete(synchronize_session=False)
+        db.query(Conversacion).filter(Conversacion.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+    return len(ids)
+
+
+def borrar_datos_telefono(db: Session, telefono: str) -> int:
+    """Borra TODO lo de un teléfono (conversaciones + mensajes). Derecho de
+    supresión (Ley 25.326 art. 16). Devuelve cuántas conversaciones borró.
+    """
+    ids = [
+        c.id
+        for c in db.query(Conversacion).filter(Conversacion.telefono_cliente == telefono).all()
+    ]
+    if ids:
+        db.query(HistorialMensaje).filter(
+            HistorialMensaje.conversacion_id.in_(ids)
+        ).delete(synchronize_session=False)
+        db.query(Conversacion).filter(Conversacion.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+    return len(ids)
