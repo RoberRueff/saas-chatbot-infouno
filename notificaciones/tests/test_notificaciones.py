@@ -14,6 +14,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from notificaciones.config import NotifConfig
+from notificaciones.email import construir_asunto, construir_cuerpo
 
 
 def _config(**over):
@@ -49,6 +50,43 @@ def test_destino_desconocido_es_none():
 def test_activo_segun_password():
     assert _config(smtp_password="x").activo is True
     assert _config(smtp_password="").activo is False
+
+
+def _resultado(**over):
+    base = dict(
+        categoria="Comercial/Ventas",
+        nombre_empresa="ModaSur",
+        rubro="indumentaria",
+        linea_servicio="Desarrollo Web",
+        necesidad="tienda online",
+        ubicacion="Rosario",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_asunto_incluye_categoria_y_empresa():
+    asunto = construir_asunto(_resultado(), "+5491150000010")
+    assert "Comercial/Ventas" in asunto
+    assert "ModaSur" in asunto
+
+
+def test_asunto_usa_telefono_si_no_hay_empresa():
+    asunto = construir_asunto(_resultado(nombre_empresa=None), "+5491150000010")
+    assert "+5491150000010" in asunto
+
+
+def test_cuerpo_incluye_los_datos_del_caso():
+    cuerpo = construir_cuerpo(_resultado(), "+5491150000010")
+    for esperado in ["Comercial/Ventas", "ModaSur", "indumentaria",
+                     "Desarrollo Web", "tienda online", "Rosario", "+5491150000010"]:
+        assert esperado in cuerpo, f"falta en el cuerpo: {esperado}"
+
+
+def test_cuerpo_tolera_campos_vacios():
+    cuerpo = construir_cuerpo(_resultado(nombre_empresa=None, rubro=None,
+                                         linea_servicio=None), "+5491150000010")
+    assert "-" in cuerpo  # los campos faltantes se muestran como "-"
 
 
 if __name__ == "__main__":
