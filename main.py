@@ -33,9 +33,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("chatbot")
 
 
+SECRETOS_REQUERIDOS_PROD = ("APP_SECRET_KEY", "TWILIO_AUTH_TOKEN", "GEMINI_API_KEY")
+
+
+def _validar_config_produccion() -> None:
+    """En producción, no arrancar si falta un secreto crítico (fail-fast).
+
+    En desarrollo no hace nada. Evita servir mal configurado de forma silenciosa
+    (p. ej. Twilio fail-open o /chat sin auth).
+    """
+    if os.getenv("APP_ENV", "development").lower() != "production":
+        return
+    faltantes = [k for k in SECRETOS_REQUERIDOS_PROD if not os.getenv(k)]
+    if faltantes:
+        raise RuntimeError(
+            "Configuración de producción incompleta: faltan "
+            + ", ".join(faltantes)
+            + ". Definílas en el entorno antes de arrancar."
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global gemini_client
+    _validar_config_produccion()
     init_db()
     if _ia_configurada():
         gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
