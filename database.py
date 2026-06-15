@@ -113,10 +113,7 @@ def obtener_o_crear_conversacion(
     instante = _as_utc(ahora or datetime.now(timezone.utc))
     conversacion = (
         db.query(Conversacion)
-        .filter(
-            Conversacion.telefono_cliente == telefono,
-            Conversacion.estado_humano == False,  # noqa: E712
-        )
+        .filter(Conversacion.telefono_cliente == telefono)
         .order_by(Conversacion.fecha_creacion.desc())
         .first()
     )
@@ -178,3 +175,19 @@ def liberar_derivacion(db: Session, conversacion_id: int) -> None:
         .values(derivada=False, derivada_en=None)
     )
     db.commit()
+
+
+def marcar_estado_humano(db: Session, conversacion_id: int) -> bool:
+    """Marca la conversación en modo humano de forma ATÓMICA.
+
+    Devuelve True solo si ESTE llamado la marcó (gana la carrera); False si ya
+    estaba en modo humano. El `UPDATE ... WHERE estado_humano = False` garantiza
+    que el aviso de escalamiento se mande una sola vez.
+    """
+    resultado = db.execute(
+        update(Conversacion)
+        .where(Conversacion.id == conversacion_id, Conversacion.estado_humano == False)  # noqa: E712
+        .values(estado_humano=True)
+    )
+    db.commit()
+    return resultado.rowcount == 1
