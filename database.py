@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (
     Boolean,
@@ -64,21 +64,59 @@ def get_db():
         yield session
 
 
-def obtener_o_crear_conversacion(db: Session, telefono: str) -> Conversacion:
+# Inactividad tras la cual el próximo mensaje arranca una conversación NUEVA.
+# Coincide con la ventana de sesión de WhatsApp/Twilio. Así un cliente que
+# vuelve (incluso ya derivado) abre un caso nuevo y puede volver a derivarse.
+VENTANA_CONVERSACION_HORAS = 24
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """SQLite devuelve datetimes naive; los tratamos como UTC para poder comparar."""
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _ultima_actividad(db: Session, conversacion: Conversacion) -> datetime:
+    """Fecha (UTC, tz-aware) del último mensaje; fecha_creacion si no hay mensajes."""
+    fila = (
+        db.query(HistorialMensaje.fecha)
+        .filter(HistorialMensaje.conversacion_id == conversacion.id)
+        .order_by(HistorialMensaje.id.desc())
+        .first()
+    )
+    return _as_utc(fila[0] if fila else conversacion.fecha_creacion)
+
+
+def obtener_o_crear_conversacion(
+    db: Session, telefono: str, ahora: datetime | None = None
+) -> Conversacion:
+    """Devuelve la conversación activa y RECIENTE del teléfono, o crea una nueva.
+
+    "Reciente" = con última actividad dentro de VENTANA_CONVERSACION_HORAS. Si la
+    última conversación expiró (o no hay), se crea una nueva (con derivada=False).
+    `ahora` es inyectable para tests.
+    """
+    instante = _as_utc(ahora or datetime.now(timezone.utc))
     conversacion = (
         db.query(Conversacion)
         .filter(
             Conversacion.telefono_cliente == telefono,
-            Conversacion.estado_humano == False,
+            Conversacion.estado_humano == False,  # noqa: E712
         )
         .order_by(Conversacion.fecha_creacion.desc())
         .first()
     )
-    if conversacion is None:
-        conversacion = Conversacion(telefono_cliente=telefono)
-        db.add(conversacion)
-        db.commit()
-        db.refresh(conversacion)
+    if conversacion is not None:
+        dentro_de_ventana = (
+            instante - _ultima_actividad(db, conversacion)
+            < timedelta(hours=VENTANA_CONVERSACION_HORAS)
+        )
+        if dentro_de_ventana:
+            return conversacion
+
+    conversacion = Conversacion(telefono_cliente=telefono)
+    db.add(conversacion)
+    db.commit()
+    db.refresh(conversacion)
     return conversacion
 
 
