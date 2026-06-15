@@ -51,6 +51,12 @@ async def verificar_twilio(request: Request) -> None:
     """
     token = os.getenv("TWILIO_AUTH_TOKEN")
     if not token:
+        # Fail-CLOSED en producción: sin token no podemos validar, así que en vez
+        # de aceptar cualquier webhook (fail-open) rechazamos. En dev se permite
+        # para no friccionar las pruebas locales.
+        if os.getenv("APP_ENV", "development").lower() == "production":
+            logger.error("TWILIO_AUTH_TOKEN no configurado en producción — webhook rechazado")
+            raise HTTPException(status_code=503, detail="Validación de webhook no disponible")
         logger.warning(
             "TWILIO_AUTH_TOKEN no configurado — validación de firma DESACTIVADA (modo dev)"
         )
