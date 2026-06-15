@@ -109,43 +109,51 @@ Mismo patrón que `ia/` y `seguridad/`: `main.py` solo importa la fachada.
 |---|---|
 | `notificaciones/config.py` | Mapa `categoría → email`, remitente, toggle (lee de env). Único lugar a tocar para cambiar casillas. |
 | `notificaciones/email.py` | `enviar_aviso_derivacion(resultado, telefono) -> bool`: arma asunto + cuerpo, resuelve el destino, llama al sender. Captura errores y nunca propaga. |
-| `notificaciones/sender.py` | Adapter fino sobre la API de Resend (HTTP). Inyectable para tests. |
+| `notificaciones/sender.py` | Adapter fino sobre `smtplib` (`SMTP_SSL` a `mail.infouno.com.ar:465`). Inyectable para tests. |
 
 **Contenido del email**
 - Asunto: `[infouno] {categoria}: {nombre_empresa or telefono}`
 - Cuerpo (texto plano): categoría · empresa · rubro · línea de servicio · necesidad ·
   ubicación · teléfono del cliente · fecha.
 
-**Comportamiento del toggle:** si `RESEND_API_KEY` está vacío, la notificación
+**Comportamiento del toggle:** si `SMTP_PASSWORD` está vacío, la notificación
 queda **desactivada** (loguea un aviso y devuelve `False`), igual que el patrón de
 `TWILIO_AUTH_TOKEN`. Permite correr en local sin enviar mails.
 
 ### 6. Config nueva (`.env` y `.env.example`)
 
+Envío vía el **SMTP propio** de infouno (`mail.infouno.com.ar`, puerto 465
+SSL/TLS). Los tres destinos son `@infouno.com.ar`, así que es correo interno —
+entrega confiable, sin verificación de dominio ni servicios de terceros.
+
 ```
-# Resend — notificación por email al derivar un caso
-# Si RESEND_API_KEY está vacío, la notificación se DESACTIVA (modo desarrollo).
-RESEND_API_KEY=
+# SMTP — notificación por email al derivar un caso (servidor propio de infouno)
+# Si SMTP_PASSWORD está vacío, la notificación se DESACTIVA (modo desarrollo).
+SMTP_HOST=mail.infouno.com.ar
+SMTP_PORT=465
+SMTP_USER=bot@infouno.com.ar
+SMTP_PASSWORD=
 NOTIF_EMAIL_FROM=bot@infouno.com.ar
 NOTIF_EMAIL_VENTAS=ventas@infouno.com.ar
 NOTIF_EMAIL_ADMIN=administracion@infouno.com.ar
 NOTIF_EMAIL_SOPORTE=servicio.tecnico@infouno.com.ar
 ```
 
-`NOTIF_EMAIL_FROM` debe usar un dominio verificado en Resend (para pruebas se
-puede usar `onboarding@resend.dev`). `resend` se agrega a `requirements.txt`.
+`SMTP_USER` es la cuenta de correo que envía (debe existir en el servidor) y suele
+coincidir con `NOTIF_EMAIL_FROM`. El envío usa `smtplib` de la stdlib: **no se
+agregan dependencias** a `requirements.txt`.
 
 ## Testing (TDD)
 
-Con un **sender inyectado** (sin pegarle a Resend de verdad):
+Con un **sender inyectado** (sin abrir una conexión SMTP de verdad):
 
 1. **Ruteo correcto:** cada categoría resuelve a su casilla; `Desconocido` no envía.
 2. **Armado del email:** asunto y cuerpo contienen los campos esperados
    (categoría, empresa/teléfono, necesidad, etc.) — función pura.
 3. **Enviar una sola vez:** dos llamadas con `notificar_recepcion=True` sobre la
    misma conversación derivan un único email (idempotencia por `derivada`).
-4. **Desactivado sin API key:** con `RESEND_API_KEY` vacío no se intenta enviar y
-   se devuelve `False`.
+4. **Desactivado sin credenciales:** con `SMTP_PASSWORD` vacío no se intenta
+   enviar y se devuelve `False`.
 5. **Falla no rompe ni marca:** si el sender lanza/devuelve error, `derivada`
    queda en `False` y la respuesta al cliente igual se produce.
 
@@ -159,6 +167,6 @@ Los tests del módulo `notificaciones/` no deben requerir red ni la API real.
    correcto, una sola vez por caso.
 3. Un fallo de email no rompe la respuesta al cliente ni marca el caso como
    derivado (reintenta en el próximo mensaje).
-4. Sin `RESEND_API_KEY`, el bot funciona igual y no intenta enviar.
+4. Sin `SMTP_PASSWORD`, el bot funciona igual y no intenta enviar.
 5. Tests de `notificaciones/` verdes sin acceso a red; tests existentes
    actualizados a las categorías nuevas.
