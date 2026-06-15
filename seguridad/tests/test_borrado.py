@@ -42,6 +42,12 @@ def test_borrar_con_api_key_borra():
         main.borrar_datos_telefono = original
 
 
+def test_app_arranca_con_purga_y_responde_root():
+    # Arrancar el lifespan (que ahora corre la purga inicial) no debe romper.
+    with TestClient(main.app) as client:
+        assert client.get("/").status_code == 200
+
+
 if __name__ == "__main__":
     funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fallos = 0

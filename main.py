@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -23,6 +24,7 @@ from database import (
     liberar_derivacion,
     marcar_estado_humano,
     obtener_o_crear_conversacion,
+    purgar_conversaciones_antiguas,
     reclamar_derivacion,
 )
 from ia import guardrails
@@ -55,14 +57,46 @@ def _validar_config_produccion() -> None:
         )
 
 
+INTERVALO_PURGA_SEG = 24 * 60 * 60  # purga periódica diaria
+
+
+def _purga_inicial() -> None:
+    """Corre una purga al arrancar. Best-effort: loguea y nunca tumba el arranque."""
+    try:
+        with Session(engine) as db:
+            n = purgar_conversaciones_antiguas(db)
+        if n:
+            logger.info("Purga inicial: %s conversaciones eliminadas", n)
+    except Exception:  # noqa: BLE001
+        logger.exception("Error en la purga inicial")
+
+
+async def _loop_purga() -> None:
+    """Purga periódica cada 24 h. Duerme ANTES de purgar (así un arranque corto no dispara)."""
+    while True:
+        await asyncio.sleep(INTERVALO_PURGA_SEG)
+        try:
+            with Session(engine) as db:
+                n = purgar_conversaciones_antiguas(db)
+            if n:
+                logger.info("Purga periódica: %s conversaciones eliminadas", n)
+        except Exception:  # noqa: BLE001
+            logger.exception("Error en la purga periódica")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global gemini_client
     _validar_config_produccion()
     init_db()
+    _purga_inicial()
+    tarea_purga = asyncio.create_task(_loop_purga())
     if _ia_configurada():
         gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    yield
+    try:
+        yield
+    finally:
+        tarea_purga.cancel()
 
 
 app = FastAPI(title="Chatbot Infouno", version="1.0.0", lifespan=lifespan)
