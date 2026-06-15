@@ -1,4 +1,4 @@
-# Diseño — Derivación de casos y panel de consulta
+# Diseño — Derivación de casos, panel y traspaso a humano
 
 **Fecha:** 2026-06-13
 **Proyecto:** saas-chatbot-balanzas
@@ -16,6 +16,10 @@ modelo pero nunca se usa. El flujo de negocio no cierra de punta a punta.
 Cuando el bot tiene la info mínima para derivar, registrar el caso de forma
 persistente y exponerlo en un listado consultable por un humano (ventas /
 servicio técnico / calibración). Sin servicios externos.
+
+Además, permitir que un humano **tome** un caso desde ese listado: a partir de ahí
+la conversación pasa a `estado_humano` y el bot deja de responder
+automáticamente, para que la persona atienda sin que el bot la pise.
 
 ## Decisiones de producto (acordadas)
 
@@ -39,12 +43,23 @@ Se agregan campos a `Conversacion` para registrar la derivación:
 | `derivada_en` | `datetime \| None` | `None` | Momento de la derivación (UTC). |
 | `resumen_json` | `Text \| None` | `None` | Snapshot de los datos estructurados al derivar (ubicación, tipo_equipo, marca_modelo, síntoma, info_faltante). |
 
-`estado_humano` se mantiene en el modelo por compatibilidad pero deja de usarse
-como filtro; el filtro de conversación activa pasa a `derivada == False`.
+`estado_humano` **deja de ser un campo muerto y pasa a tener un propósito real**:
+marca que un humano está atendiendo la conversación (ver sección 4). Es un eje
+distinto de `derivada`: `derivada` = el bot juntó la info y encoló el caso;
+`estado_humano` = un humano tomó la conversación y el bot debe callarse. Una
+conversación puede estar derivada y todavía sin humano (`derivada=True`,
+`estado_humano=False`), o tomada por un humano (`estado_humano=True`).
 
 `obtener_o_crear_conversacion` cambia su filtro de `estado_humano == False` a
-`derivada == False`. Así, tras derivar, el próximo mensaje del cliente no
-encuentra conversación activa y crea una nueva (caso nuevo).
+**"continuar la conversación salvo que esté derivada y sin humano atendiéndola"**,
+es decir el filtro pasa a `derivada == False OR estado_humano == True`. Así:
+
+- **Derivado y sin tomar** (`derivada=True, estado_humano=False`) → el próximo
+  mensaje del cliente no lo encuentra y crea un caso nuevo (comportamiento del
+  punto 2 de Decisiones).
+- **Tomado por un humano** (`estado_humano=True`) → el próximo mensaje del cliente
+  **continúa en la misma conversación** (no abre caso nuevo), para que el humano
+  no pierda el hilo.
 
 ### 2. Lógica de derivación (`_procesar_mensaje` en `main.py`)
 
@@ -72,7 +87,41 @@ en `database.py` para mantener la capa de persistencia separada.
 
 Schema de respuesta: nuevo modelo Pydantic `CasoDerivado`.
 
-### 4. Manejo de errores
+### 4. Traspaso a humano (`estado_humano`)
+
+Un caso derivado queda en la cola, pero hasta ahora ningún humano puede "tomarlo"
+ni el bot sabe cuándo callarse para no pisar a una persona. `estado_humano` cubre
+eso: cuando vale `True`, **un humano está atendiendo la conversación y el bot no
+responde**.
+
+**Disparadores**
+
+1. **Humano toma el caso desde el panel (principal).** Nuevo endpoint
+   `POST /casos/{id}/tomar` → setea `estado_humano = True` en la conversación. Es
+   la "elección de derivar a un humano": el asesor ve el caso en `/casos` y lo
+   agarra. Idempotente (tomar dos veces no rompe nada; si el id no existe, 404).
+2. **El cliente pide hablar con una persona (secundario, opcional).** Se agrega un
+   campo `pide_humano: bool` al schema `RespuestaChatbot` (`main.py`); el bot lo
+   marca cuando detecta la intención ("quiero hablar con alguien"). Esto **no**
+   silencia al bot automáticamente: solo prioriza/señala el caso en el panel para
+   que un humano lo tome. El silenciado ocurre recién con `tomar`.
+
+**Guard en `_procesar_mensaje` (`main.py`)**
+
+Al inicio de `_procesar_mensaje`, antes de llamar a Gemini: si la conversación
+existe y `estado_humano == True`, **guardar el mensaje entrante del cliente** (para
+que el humano lo vea en el historial) pero **no** llamar a Gemini ni generar
+auto-respuesta. El endpoint responde sin mensaje al canal (en `/whatsapp`, TwiML
+sin `<Message>`), de modo que el humano responde por fuera sin que el bot escriba
+encima.
+
+**Interacción con el filtro de conversación activa**
+
+Ver sección 1: el filtro `derivada == False OR estado_humano == True` garantiza
+que, una vez tomada por un humano, la conversación sigue siendo la activa para ese
+teléfono (el cliente no abre un caso nuevo mientras el humano la atiende).
+
+### 5. Manejo de errores
 
 - Si `categoria` recibido en el query param no coincide con ninguna categoría
   conocida, devolver lista vacía (no error).
@@ -94,10 +143,22 @@ Tests con SQLite en memoria (`sqlite:///:memory:`) y el cliente Gemini mockeado:
    esa categoría.
 5. **Snapshot correcto:** el `resumen_json` guardado refleja los campos del
    resultado al momento de derivar.
+6. **Traspaso silencia al bot:** con `estado_humano=True`, un mensaje del cliente
+   se guarda pero NO dispara llamada a Gemini ni auto-respuesta (el endpoint
+   responde sin mensaje).
+7. **Tomar caso desde el panel:** `POST /casos/{id}/tomar` setea
+   `estado_humano=True`, es idempotente, y devuelve 404 si el id no existe.
+8. **Conversación tomada no abre caso nuevo:** con `estado_humano=True`, un mensaje
+   posterior del mismo teléfono continúa en la misma conversación (mismo id), a
+   diferencia del caso derivado-y-sin-tomar.
+9. **`pide_humano` no silencia solo:** un resultado con `pide_humano=True` sin
+   `tomar` deja al bot respondiendo normalmente; recién `tomar` lo silencia.
 
 ## Fuera de alcance (siguiente iteración)
 
-- Autenticación del panel con `APP_SECRET_KEY` / `X-API-Key`.
+- Devolver el control al bot / cerrar el caso tras la atención humana (des-marcar
+  `estado_humano`). Por ahora, una vez tomada, la conversación queda con el humano.
+- Autenticación del panel y del endpoint `tomar` con `APP_SECRET_KEY` / `X-API-Key`.
 - Notificaciones push (email / webhook a Slack o CRM).
 - Vista HTML del panel.
 - Validación de firma de Twilio (`X-Twilio-Signature`) — tarea aparte acordada
