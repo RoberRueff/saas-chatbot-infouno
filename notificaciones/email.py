@@ -25,10 +25,11 @@ def construir_asunto(resultado, telefono: str) -> str:
     return f"[infouno] {_categoria_str(resultado)}: {quien}"
 
 
-def construir_cuerpo(resultado, telefono: str) -> str:
+def construir_cuerpo(resultado, telefono: str, *,
+                     intro: str = "Nuevo caso derivado desde el chatbot de WhatsApp.") -> str:
     g = lambda campo: getattr(resultado, campo, None) or "-"
     return "\n".join([
-        "Nuevo caso derivado desde el chatbot de WhatsApp.",
+        intro,
         "",
         f"Departamento: {_categoria_str(resultado)}",
         f"Empresa: {g('nombre_empresa')}",
@@ -65,4 +66,47 @@ def enviar_aviso_derivacion(resultado, telefono: str, *,
         return True
     except Exception:  # noqa: BLE001
         logger.exception("Falló el envío del aviso de derivación a %s", destino)
+        return False
+
+
+def construir_asunto_escalamiento(resultado, telefono: str) -> str:
+    quien = getattr(resultado, "nombre_empresa", None) or telefono
+    return f"[infouno] PIDE HUMANO: {quien}"
+
+
+def _destino_escalamiento(config: NotifConfig, categoria: str) -> str | None:
+    """Ruteo por categoría; si no hay, fallback a Ventas y luego al primer destino."""
+    return (
+        config.destino_para(categoria)
+        or config.destinos.get("Comercial/Ventas")
+        or next((d for d in config.destinos.values() if d), None)
+    )
+
+
+def enviar_aviso_escalamiento(resultado, telefono: str, *,
+                              config: NotifConfig | None = None,
+                              sender=enviar_smtp) -> bool:
+    """Avisa al equipo que el cliente pidió hablar con una persona.
+
+    Devuelve True solo si el mail se envió OK. Nunca lanza: ante cualquier
+    problema loguea y devuelve False (best-effort; el modo humano ya quedó marcado).
+    """
+    config = config or cargar_config()
+    if not config.activo:
+        logger.warning("Notificación por email DESACTIVADA (SMTP_PASSWORD vacío) — no se envía escalamiento")
+        return False
+
+    destino = _destino_escalamiento(config, _categoria_str(resultado))
+    if not destino:
+        logger.info("Sin destino para escalamiento — no se envía")
+        return False
+
+    try:
+        sender(config, destino, construir_asunto_escalamiento(resultado, telefono),
+               construir_cuerpo(resultado, telefono,
+                                intro="El cliente pidió hablar con una persona (chatbot de WhatsApp)."))
+        logger.info("Aviso de escalamiento enviado a %s", destino)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("Falló el envío del aviso de escalamiento a %s", destino)
         return False
