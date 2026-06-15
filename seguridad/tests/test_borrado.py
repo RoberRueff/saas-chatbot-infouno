@@ -13,14 +13,26 @@ import main
 _BODY = {"telefono": "+5491100000000"}
 
 
+def _restaurar_secret(prev):
+    if prev is None:
+        os.environ.pop("APP_SECRET_KEY", None)
+    else:
+        os.environ["APP_SECRET_KEY"] = prev
+
+
 def test_borrar_sin_api_key_rechaza():
+    prev = os.environ.get("APP_SECRET_KEY")
     os.environ["APP_SECRET_KEY"] = "secreto-test"
-    with TestClient(main.app) as client:
-        r = client.post("/admin/borrar-datos", json=_BODY)
-        assert r.status_code == 401, r.status_code
+    try:
+        with TestClient(main.app) as client:
+            r = client.post("/admin/borrar-datos", json=_BODY)
+            assert r.status_code == 401, r.status_code
+    finally:
+        _restaurar_secret(prev)
 
 
 def test_borrar_con_api_key_borra():
+    prev = os.environ.get("APP_SECRET_KEY")
     os.environ["APP_SECRET_KEY"] = "secreto-test"
     original = main.borrar_datos_telefono
     try:
@@ -40,6 +52,7 @@ def test_borrar_con_api_key_borra():
             assert capturado["telefono"] == "+5491100000000"
     finally:
         main.borrar_datos_telefono = original
+        _restaurar_secret(prev)
 
 
 def test_app_arranca_con_purga_y_responde_root():
