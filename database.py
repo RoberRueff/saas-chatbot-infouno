@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    event,
     update,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session
@@ -15,6 +16,20 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 DATABASE_URL = "sqlite:///./chatbot.db"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+
+def _aplicar_pragmas_sqlite(dbapi_conn, _record) -> None:
+    """Pragmas por conexión nueva:
+    - WAL: lectores concurrentes + 1 escritor sin 'database is locked' inmediato.
+    - busy_timeout: el escritor espera hasta 5 s por el lock en vez de fallar al toque.
+    """
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.execute("PRAGMA busy_timeout=5000")
+    cur.close()
+
+
+event.listen(engine, "connect", _aplicar_pragmas_sqlite)
 
 
 class Base(DeclarativeBase):
