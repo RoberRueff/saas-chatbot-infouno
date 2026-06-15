@@ -67,6 +67,16 @@ def test_cliente_derivado_que_vuelve_se_puede_rederivar():
         assert conv2.derivada is False
 
 
+def test_crea_nueva_exactamente_a_24h():
+    # Exactamente 24 h después: se crea nueva (la ventana NO incluye el límite).
+    with _db() as db:
+        conv1 = obtener_o_crear_conversacion(db, TEL)
+        ahora = datetime.now(timezone.utc) + timedelta(hours=24)
+        conv2 = obtener_o_crear_conversacion(db, TEL, ahora=ahora)
+        assert conv2.id != conv1.id
+        assert conv2.derivada is False
+
+
 if __name__ == "__main__":
     funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     fallos = 0

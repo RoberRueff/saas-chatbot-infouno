@@ -80,7 +80,7 @@ def _ultima_actividad(db: Session, conversacion: Conversacion) -> datetime:
     fila = (
         db.query(HistorialMensaje.fecha)
         .filter(HistorialMensaje.conversacion_id == conversacion.id)
-        .order_by(HistorialMensaje.id.desc())
+        .order_by(HistorialMensaje.fecha.desc(), HistorialMensaje.id.desc())
         .first()
     )
     return _as_utc(fila[0] if fila else conversacion.fecha_creacion)
