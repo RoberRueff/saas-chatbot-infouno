@@ -51,7 +51,7 @@ def test_handoff_marca_humano_responde_fijo_y_agenda_email():
             bg = _BG()
             cid, res = main._procesar_mensaje(db, TEL, "quiero hablar con alguien", bg)
             assert res is not None
-            assert res.respuesta_al_cliente == main.MSG_ESCALAMIENTO_HUMANO
+            assert main.MSG_ESCALAMIENTO_HUMANO in res.respuesta_al_cliente
             conv = obtener_o_crear_conversacion(db, TEL)
             assert conv.id == cid
             assert conv.estado_humano is True

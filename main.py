@@ -297,6 +297,20 @@ def _escalar_en_background(resultado: RespuestaChatbot, telefono: str) -> None:
     enviar_aviso_escalamiento(resultado, telefono)
 
 
+MSG_AVISO_PRIVACIDAD = (
+    "Aviso de privacidad: tus datos (teléfono y mensajes) los trata infouno solo "
+    "para atender y derivar tu consulta. Podés pedir acceder a ellos o borrarlos "
+    "cuando quieras."
+)
+
+
+def _con_aviso_si_primero(texto: str, es_primer_turno: bool) -> str:
+    """Agrega el aviso de privacidad (art. 6) si es el primer turno de la conversación."""
+    if es_primer_turno:
+        return f"{texto}\n\n{MSG_AVISO_PRIVACIDAD}"
+    return texto
+
+
 def _procesar_mensaje(
     db: Session,
     telefono: str,
@@ -312,6 +326,7 @@ def _procesar_mensaje(
         return None, _respuesta_sintetica(veredicto.respuesta_fija)
 
     conversacion = obtener_o_crear_conversacion(db, telefono)
+    es_primer_turno = not conversacion.mensajes  # conversación nueva → aviso de privacidad
 
     # --- Modo humano: el bot no responde, pero guardamos el mensaje del cliente
     # para que el asesor tenga el historial completo. No se llama a Gemini.
@@ -340,7 +355,7 @@ def _procesar_mensaje(
     # derivación de este turno se saltea (el escalamiento la reemplaza).
     if resultado.solicita_humano:
         gano = marcar_estado_humano(db, conversacion.id)
-        resultado.respuesta_al_cliente = MSG_ESCALAMIENTO_HUMANO
+        resultado.respuesta_al_cliente = _con_aviso_si_primero(MSG_ESCALAMIENTO_HUMANO, es_primer_turno)
         nota_json = resultado.model_dump_json(exclude={"respuesta_al_cliente"}, exclude_none=False)
         guardar_mensaje(db, conversacion.id, "user", texto)
         guardar_mensaje(db, conversacion.id, "assistant", resultado.respuesta_al_cliente, nota_json)
@@ -348,6 +363,7 @@ def _procesar_mensaje(
             background_tasks.add_task(_escalar_en_background, resultado, telefono)
         return conversacion.id, resultado
 
+    resultado.respuesta_al_cliente = _con_aviso_si_primero(resultado.respuesta_al_cliente, es_primer_turno)
     nota_json = resultado.model_dump_json(exclude={"respuesta_al_cliente"}, exclude_none=False)
     guardar_mensaje(db, conversacion.id, "user", texto)
     guardar_mensaje(db, conversacion.id, "assistant", resultado.respuesta_al_cliente, nota_json)
